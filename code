@@ -1,0 +1,88 @@
+#define BLYNK_PRINT Serial
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <DHT.h>
+
+// ---------- Blynk Credentials ----------
+char auth[] = "YOUR_BLYNK_AUTH_TOKEN";
+char ssid[] = "YOUR_WIFI_NAME";
+char pass[] = "YOUR_WIFI_PASSWORD";
+
+// ---------- Pins ----------
+#define SS_PIN 5
+#define RST_PIN 22
+#define BUZZER 2
+#define DHTPIN 4
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+DHT dht(DHTPIN, DHT11);
+
+float temperature;
+
+// Add children UID & names
+String validCards[] = { "AB CD EF 12", "11 22 33 44" };
+String childNames[] = { "Rahul", "Ananya" };
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUZZER, OUTPUT);
+  digitalWrite(BUZZER, LOW);
+
+  SPI.begin();
+  rfid.PCD_Init();
+  dht.begin();
+
+  Blynk.begin(auth, ssid, pass);
+  Serial.println("Child Safety System Started");
+}
+
+void loop() {
+  Blynk.run();
+
+  // -------- Temperature Monitoring --------
+  temperature = dht.readTemperature();
+  Serial.print("Temperature: "); Serial.println(temperature);
+  Blynk.virtualWrite(V0, temperature);
+
+  if (temperature > 37.5) { 
+    digitalWrite(BUZZER, HIGH);
+    // Send Danger Alert
+    Blynk.logEvent("danger_alert", "⚠ Child Safety Management System Alert! Child is in Danger Zone! High Temperature Detected");
+  } else {
+    digitalWrite(BUZZER, LOW);
+  }
+
+  // -------- RFID Detection --------
+  if (!rfid.PICC_IsNewCardPresent()) return;
+  if (!rfid.PICC_ReadCardSerial()) return;
+
+  String uid = "";
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    uid += String(rfid.uid.uidByte[i], HEX);
+    if (i != rfid.uid.size - 1) uid += " ";
+  }
+  uid.toUpperCase();
+  Serial.print("Card UID: "); Serial.println(uid);
+
+  bool found = false;
+  for (int i = 0; i < 2; i++) {
+    if (uid == validCards[i]) {
+      found = true;
+      Serial.println("Child Detected: " + childNames[i]);
+      Blynk.virtualWrite(V1, childNames[i] + " Present");
+      break;
+    }
+  }
+
+  if (!found) {
+    Serial.println("⚠ Unknown Card Detected!");
+    digitalWrite(BUZZER, HIGH);
+    Blynk.logEvent("danger_alert", "⚠ Child Safety Management System Alert! Child is in Danger Zone! Unauthorized RFID Detected");
+    delay(2000);
+    digitalWrite(BUZZER, LOW);
+  }
+
+  delay(1500);
+}
